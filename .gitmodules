@@ -1,0 +1,9 @@
+[submodule "third_party/cat-catch"]
+	path = third_party/cat-catch
+	url = https://github.com/Jiusi-pys/cat-catch.git
+[submodule "third_party/whisper.cpp"]
+	path = third_party/whisper.cpp
+	url = https://github.com/ggml-org/whisper.cpp.git
+[submodule "third_party/llama.cpp"]
+	path = third_party/llama.cpp
+	url = https://github.com/ggml-org/llama.cpp.git

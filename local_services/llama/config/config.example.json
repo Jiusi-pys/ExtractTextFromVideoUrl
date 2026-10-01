@@ -1,0 +1,18 @@
+{
+  "server_exe": "../../build/llama/bin/Release/llama-server.exe",
+  "host": "127.0.0.1",
+  "port": 8188,
+  "device": "",
+  "n_gpu_layers": 0,
+  "ctx_size": 8192,
+  "parallel": 1,
+  "api_key_file": "../../.local/llama-api-key.txt",
+  "default_profile": "quality",
+  "profiles": {
+    "smoke": "ggml-org/Qwen3-4B-GGUF:Q4_K_M",
+    "quality": "ggml-org/Qwen3.6-35B-A3B-GGUF:Q4_K_M"
+  },
+  "correction_soft_switch": "/no_think",
+  "log_dir": "../../.local/llama",
+  "output_dir": "../../outputs/llama-service"
+}

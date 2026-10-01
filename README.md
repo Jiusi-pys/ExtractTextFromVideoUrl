@@ -6,33 +6,31 @@ A Windows command line workflow that downloads media with the local cat-catch CL
 
 ## Requirements
 
-- Python 3.10+, Node.js 22+, and FFmpeg on `PATH`.
-- The `cat-catch`, `whisper.cpp`, and `llama.cpp` Git submodules under `third_party/`. Clone with `--recurse-submodules`.
-- The local `whisper-agent` and `llama-agent` bridge services, each with its configured Python environment and `cli.py`. These machine-specific bridges and model files are **not** part of the upstream source submodules. The Whisper bridge must permit reading this project's output directory.
+- Windows, Git, Python 3.10+, Node.js 22+, FFmpeg, CMake, and a Visual Studio C++ build toolchain.
+- Vulkan SDK and a compatible GPU driver for the optional Vulkan build.
+- The three pinned upstream source repositories are included as Git submodules. This repository also contains the Python bridge code for both model servers.
 
-The cat-catch default points to its submodule. The bridge defaults match the author's Windows machine (`~/Documents/ai-services/whisper-agent` and `llama-agent`); use the directory options below elsewhere. Only media that cat-catch can access is supported; DRM decryption is unavailable.
+Model weights and compiled binaries are generated locally and ignored by Git. The default llama quality profile downloads a large model from Hugging Face on first use. Only media that cat-catch can access is supported; DRM decryption is unavailable.
 
 ## Setup
 
 ```powershell
 git clone --recurse-submodules https://github.com/Jiusi-pys/ExtractTextFromVideoUrl.git
 cd ExtractTextFromVideoUrl
-Push-Location third_party/cat-catch
-npm.cmd ci
-npx.cmd playwright install chromium
-Pop-Location
-python -m unittest discover -s tests -v
+.\setup.ps1
 ```
 
-If you already cloned the repository, run `git submodule update --init --recursive`. Install/configure the two local bridge services separately and point `--whisper-agent-dir` and `--llama-agent-dir` to them. The submodules pin source revisions but do not include compiled executables or models.
+The setup script creates the Python environment, installs cat-catch and Chromium, builds both local server executables, prepares local configs, and downloads the Whisper model. It builds BoringSSL into llama.cpp so the server can download its model over HTTPS. For Vulkan acceleration, install the Vulkan SDK and run `.\setup.ps1 -UseVulkan`. To only prepare Python and Node dependencies, use `.\setup.ps1 -SkipNativeBuild -SkipModelDownload`, then edit `local_services/*/config/config.json` to point to existing servers and models.
+
+The Whisper model is about 574 MB. The llama quality model can require substantial disk space, memory, and download time; use `--llama-profile smoke` on a smaller machine. Local settings go in ignored `config.json` files. Edit the `profiles`, server paths, or device settings there as needed. Setup preserves custom model profiles while updating compiled-server paths and device settings when it builds.
 
 ## Run
 
 ```powershell
-python transcript_pipeline.py "https://example.com/watch"
-python transcript_pipeline.py "https://example.com/watch" --selection manual
-python transcript_pipeline.py "https://example.com/watch" --selection manual --resource-id 2
-python transcript_pipeline.py "https://example.com/video.mp4"
+.\.venv\Scripts\python.exe .\transcript_pipeline.py "https://example.com/watch"
+.\.venv\Scripts\python.exe .\transcript_pipeline.py "https://example.com/watch" --selection manual
+.\.venv\Scripts\python.exe .\transcript_pipeline.py "https://example.com/watch" --selection manual --resource-id 2
+.\.venv\Scripts\python.exe .\transcript_pipeline.py "https://example.com/video.mp4"
 ```
 
 Auto selection is the default. It tries the largest reported complete video or audio resource first, then other candidates if extraction finds no audio. When sizes are unavailable, an HLS/DASH manifest takes priority. Manual mode lists captured resources and prompts for an ID; without an interactive terminal, supply `--resource-id`. An explicit ID is also accepted in auto mode and disables fallback.
@@ -43,8 +41,8 @@ Useful options:
 | --- | --- |
 | `--output-dir PATH` | Parent directory for unique run folders. |
 | `--cat-catch-dir PATH` | cat-catch checkout; defaults to `third_party/cat-catch`. |
-| `--whisper-agent-dir PATH` | Local Whisper service directory. |
-| `--llama-agent-dir PATH` | Local llama correction service directory. |
+| `--whisper-service-dir PATH` | Bundled Whisper service and local config directory. |
+| `--llama-service-dir PATH` | Bundled llama service and local config directory. |
 | `--cookies PATH` or `--storage-state PATH` | Authenticate webpage capture with a Playwright cookie/state JSON file. |
 | `--click CSS` | Click a page element before capture; repeatable. |
 | `--wait SECONDS` | Webpage capture time, default 15 seconds. |

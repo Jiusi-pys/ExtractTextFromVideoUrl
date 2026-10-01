@@ -1,0 +1,19 @@
+{
+  "server_exe": "../../build/whisper/bin/Release/whisper-server.exe",
+  "ffmpeg_exe": "ffmpeg",
+  "models_dir": "../../models/whisper",
+  "default_model": "ggml-large-v3-turbo-q5_0.bin",
+  "default_mode": "quality",
+  "modes": {
+    "fast": { "model": "ggml-large-v3-turbo-q5_0.bin", "profile": "fast" },
+    "balanced": { "model": "ggml-large-v3-turbo-q5_0.bin", "profile": "accurate" },
+    "quality": { "model": "ggml-large-v3-turbo-q5_0.bin", "profile": "accurate" }
+  },
+  "host": "127.0.0.1",
+  "port": 8177,
+  "gpu_device": 0,
+  "language": "zh",
+  "output_dir": "../../outputs/whisper-service",
+  "log_dir": "../../.local/whisper",
+  "allowed_input_roots": ["../.."]
+}

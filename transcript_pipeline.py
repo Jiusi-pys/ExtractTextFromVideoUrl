@@ -72,10 +72,12 @@ def split_text(value: str, max_chars: int = 1500) -> list[str]:
     return chunks
 
 
-def _invoke(runner, args: list[str]) -> str:
+def _invoke(runner, args: list[str], extra_env: dict[str, str] | None = None) -> str:
     try:
         environment = os.environ.copy()
         environment["PYTHONIOENCODING"] = "utf-8"
+        if extra_env:
+            environment.update(extra_env)
         result = runner(args, capture_output=True, text=True, encoding="utf-8", errors="replace", check=False, env=environment)
     except OSError as exc:
         raise PipelineError(f"Cannot start {args[0]}: {exc}") from exc
@@ -85,8 +87,8 @@ def _invoke(runner, args: list[str]) -> str:
     return result.stdout or ""
 
 
-def _json_result(runner, args: list[str]) -> dict:
-    output = _invoke(runner, args)
+def _json_result(runner, args: list[str], extra_env: dict[str, str] | None = None) -> dict:
+    output = _invoke(runner, args, extra_env)
     try:
         value = json.loads(output)
     except json.JSONDecodeError as exc:
@@ -121,7 +123,8 @@ def _record_resource(resource: dict) -> dict:
 
 
 def run_pipeline(
-    url: str, *, output_root: Path, cat_dir: Path, whisper_dir: Path, llama_dir: Path,
+    url: str, *, output_root: Path, cat_dir: Path,
+    whisper_dir: Path | None = None, llama_dir: Path | None = None,
     selection: str = "auto", resource_id: int | None = None, cookies: Path | None = None,
     storage_state: Path | None = None, duration: float | None = None, clicks: list[str] | None = None,
     wait: float = 15, whisper_mode: str = "quality", llama_profile: str = "quality",
@@ -140,7 +143,10 @@ def run_pipeline(
     if resource_id is not None and resource_id < 1:
         raise PipelineError("--resource-id must be positive")
 
-    cat_dir, whisper_dir, llama_dir = map(Path, (cat_dir, whisper_dir, llama_dir))
+    project_root = Path(__file__).resolve().parent
+    cat_dir = Path(cat_dir)
+    whisper_dir = Path(whisper_dir) if whisper_dir else project_root / "local_services" / "whisper"
+    llama_dir = Path(llama_dir) if llama_dir else project_root / "local_services" / "llama"
     output_root = Path(output_root)
     cat_cli = cat_dir / "cli" / "bin.js"
     whisper_cli = whisper_dir / "cli.py"
@@ -148,6 +154,11 @@ def run_pipeline(
     for label, path in (("cat-catch", cat_cli), ("Whisper service", whisper_cli), ("llama service", llama_cli)):
         if runner is subprocess.run and not path.is_file():
             raise PipelineError(f"{label} CLI was not found: {path}")
+    if runner is subprocess.run:
+        for service, directory in (("Whisper", whisper_dir), ("llama", llama_dir)):
+            config = directory / "config" / "config.json"
+            if not config.is_file():
+                raise PipelineError(f"{service} config is missing: {config}. Run setup.ps1 or copy config.example.json to config.json.")
 
     run_dir = output_root / (datetime.now().strftime("%Y%m%d-%H%M%S") + "-" + uuid.uuid4().hex[:8])
     run_dir.mkdir(parents=True, exist_ok=False)
@@ -233,7 +244,8 @@ def run_pipeline(
     (run_dir / "run.json").write_text(json.dumps(record, ensure_ascii=False, indent=2), encoding="utf-8")
 
     whisper_python = _service_python(whisper_dir, py)
-    transcription = _json_result(runner, [whisper_python, str(whisper_cli), "transcribe", str(audio), "--language", "zh", "--mode", whisper_mode])
+    whisper_env = {"WHISPER_BRIDGE_CONFIG": str(whisper_dir / "config" / "config.json")}
+    transcription = _json_result(runner, [whisper_python, str(whisper_cli), "transcribe", str(audio), "--language", "zh", "--mode", whisper_mode], whisper_env)
     files = transcription.get("files") or {}
     for ext in ("json", "txt", "srt"):
         source_file = Path(files.get(ext, ""))
@@ -251,7 +263,7 @@ def run_pipeline(
         if context:
             args += ["--context", context]
         try:
-            result = _json_result(runner, args)
+            result = _json_result(runner, args, {"PIPELINE_LLAMA_CONFIG": str(llama_dir / "config" / "config.json")})
         except PipelineError as exc:
             (run_dir / "corrections.partial.json").write_text(json.dumps(corrections, ensure_ascii=False, indent=2), encoding="utf-8")
             raise PipelineError(f"Correction chunk {index + 1} failed: {exc}") from exc
@@ -266,15 +278,14 @@ def run_pipeline(
 
 
 def main(argv: list[str] | None = None) -> int:
-    home = Path.home() / "Documents"
     parser = argparse.ArgumentParser(description="Download a video URL and produce a corrected Chinese transcript")
     parser.add_argument("url")
     parser.add_argument("--selection", choices=["auto", "manual"], default="auto")
     parser.add_argument("--resource-id", type=int)
     parser.add_argument("--output-dir", type=Path, default=Path(__file__).resolve().parent / "outputs")
     parser.add_argument("--cat-catch-dir", type=Path, default=Path(__file__).resolve().parent / "third_party" / "cat-catch")
-    parser.add_argument("--whisper-agent-dir", type=Path, default=home / "ai-services" / "whisper-agent")
-    parser.add_argument("--llama-agent-dir", type=Path, default=home / "ai-services" / "llama-agent")
+    parser.add_argument("--whisper-service-dir", type=Path, default=Path(__file__).resolve().parent / "local_services" / "whisper")
+    parser.add_argument("--llama-service-dir", type=Path, default=Path(__file__).resolve().parent / "local_services" / "llama")
     parser.add_argument("--cookies", type=Path)
     parser.add_argument("--storage-state", type=Path)
     parser.add_argument("--click", action="append", default=[])
@@ -285,7 +296,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     try:
         result = run_pipeline(args.url, output_root=args.output_dir, cat_dir=args.cat_catch_dir,
-                              whisper_dir=args.whisper_agent_dir, llama_dir=args.llama_agent_dir,
+                              whisper_dir=args.whisper_service_dir, llama_dir=args.llama_service_dir,
                               selection=args.selection, resource_id=args.resource_id, cookies=args.cookies,
                               storage_state=args.storage_state, clicks=args.click, wait=args.wait,
                               duration=args.duration, whisper_mode=args.whisper_mode,

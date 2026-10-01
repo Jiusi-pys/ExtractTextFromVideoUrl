@@ -1,10 +1,11 @@
 param(
-    [switch]$UseVulkan,
+    [switch]$CpuOnly,
     [switch]$SkipNativeBuild,
     [switch]$SkipModelDownload
 )
 
 $ErrorActionPreference = 'Stop'
+$useVulkan = -not $CpuOnly
 $repo = $PSScriptRoot
 Set-Location $repo
 
@@ -49,7 +50,14 @@ foreach ($service in @('whisper', 'llama')) {
 New-Item -ItemType Directory -Force -Path (Join-Path $repo 'models/whisper'), (Join-Path $repo '.local'), (Join-Path $repo 'outputs') | Out-Null
 
 if (-not $SkipNativeBuild) {
-    $vulkan = if ($UseVulkan) { 'ON' } else { 'OFF' }
+    if ($useVulkan) {
+        $sdkRoot = $env:VULKAN_SDK
+        $glslc = if ($sdkRoot) { Join-Path $sdkRoot 'Bin/glslc.exe' } else { $null }
+        if (-not $sdkRoot -or -not (Test-Path $glslc)) {
+            throw 'AMD GPU acceleration requires the LunarG Vulkan SDK. Install it, verify VULKAN_SDK and its Bin/glslc.exe are available, or run .\setup.ps1 -CpuOnly.'
+        }
+    }
+    $vulkan = if ($useVulkan) { 'ON' } else { 'OFF' }
     $whisperSource = Join-Path $repo 'third_party/whisper.cpp'
     $whisperBuild = Join-Path $repo 'build/whisper'
     cmake -S $whisperSource -B $whisperBuild -DWHISPER_BUILD_SERVER=ON "-DGGML_VULKAN=$vulkan"
@@ -78,8 +86,8 @@ if (-not $SkipNativeBuild) {
     $llamaConfigPath = Join-Path $repo 'local_services/llama/config/config.json'
     $llamaConfig = Get-Content $llamaConfigPath -Raw | ConvertFrom-Json
     $llamaConfig.server_exe = $llamaExe.FullName
-    $llamaConfig.device = if ($UseVulkan) { 'Vulkan0' } else { '' }
-    $gpuLayers = if ($UseVulkan) { 999 } else { 0 }
+    $llamaConfig.device = if ($useVulkan) { 'Vulkan0' } else { '' }
+    $gpuLayers = if ($useVulkan) { 999 } else { 0 }
     if ($null -eq $llamaConfig.PSObject.Properties['n_gpu_layers']) {
         $llamaConfig | Add-Member -NotePropertyName n_gpu_layers -NotePropertyValue $gpuLayers
     } else {
@@ -97,6 +105,5 @@ if (-not $SkipModelDownload) {
 }
 
 Write-Host 'Setup complete. Run: .\.venv\Scripts\python.exe .\transcript_pipeline.py <url>'
-if ($UseVulkan) {
-    Write-Host 'Vulkan mode selected. Ensure the Vulkan SDK and compatible GPU drivers are installed.'
-}
+if ($useVulkan) { Write-Host 'AMD GPU mode: Vulkan (device Vulkan0, llama GPU layers enabled).' }
+else { Write-Host 'CPU-only mode selected.' }

@@ -7,7 +7,7 @@ A Windows command line workflow that downloads media with the local cat-catch CL
 ## Requirements
 
 - Windows, Git, Python 3.10+, Node.js 22+, FFmpeg, CMake, and a Visual Studio C++ build toolchain.
-- Vulkan SDK and a compatible GPU driver for the optional Vulkan build.
+- Windows 11 Pro with an AMD GPU and current AMD graphics drivers. Install the LunarG Vulkan SDK (including `Bin/glslc.exe`) for the default GPU build; `-CpuOnly` is available for troubleshooting.
 - The three pinned upstream source repositories are included as Git submodules. This repository also contains the Python bridge code for both model servers.
 
 Model weights and compiled binaries are generated locally and ignored by Git. The default llama quality profile downloads a large model from Hugging Face on first use. Only media that cat-catch can access is supported; DRM decryption is unavailable.
@@ -20,7 +20,7 @@ cd ExtractTextFromVideoUrl
 .\setup.ps1
 ```
 
-The setup script creates the Python environment, installs cat-catch and Chromium, builds both local server executables, prepares local configs, and downloads the Whisper model. It builds BoringSSL into llama.cpp so the server can download its model over HTTPS. For Vulkan acceleration, install the Vulkan SDK and run `.\setup.ps1 -UseVulkan`. To only prepare Python and Node dependencies, use `.\setup.ps1 -SkipNativeBuild -SkipModelDownload`, then edit `local_services/*/config/config.json` to point to existing servers and models.
+The setup script creates the Python environment, installs cat-catch and Chromium, builds both local server executables with Vulkan enabled for AMD GPUs, prepares local configs, and downloads the Whisper model. It builds BoringSSL into llama.cpp so the server can download its model over HTTPS. Install the AMD Vulkan driver and LunarG Vulkan SDK before running `.\setup.ps1`; llama.cpp uses `Vulkan0` and GPU layers by default. Use `.\setup.ps1 -CpuOnly` for a CPU build. To only prepare Python and Node dependencies, use `.\setup.ps1 -SkipNativeBuild -SkipModelDownload`, then edit `local_services/*/config/config.json` to point to existing servers and models.
 
 The Whisper model is about 574 MB. The llama quality model can require substantial disk space, memory, and download time; use `--llama-profile smoke` on a smaller machine. Local settings go in ignored `config.json` files. Edit the `profiles`, server paths, or device settings there as needed. Setup preserves custom model profiles while updating compiled-server paths and device settings when it builds.
 

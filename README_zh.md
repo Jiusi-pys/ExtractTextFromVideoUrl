@@ -7,7 +7,7 @@
 ## 依赖与安装
 
 - Python 3.10+、Node.js 22+，以及已加入 `PATH` 的 FFmpeg。
-- CMake 和 Visual Studio C++ 工具链；使用 Vulkan 加速还需 Vulkan SDK 与兼容的 GPU 驱动。
+- Windows 11 Pro 与 AMD GPU，需安装当前 AMD 显卡驱动。默认 GPU 构建还需 LunarG Vulkan SDK（包括 `Bin/glslc.exe`）；排障时可用 `-CpuOnly` 切换为 CPU。
 - `third_party/` 下的 cat-catch、whisper.cpp、llama.cpp Git 子模块。
 - 仓库自带 Whisper 与 llama Python 桥接代码。模型权重和编译后的程序在本机生成，不会提交到 Git。
 
@@ -17,7 +17,7 @@ cd ExtractTextFromVideoUrl
 .\setup.ps1
 ```
 
-安装脚本会创建 Python 环境、安装 cat-catch 与 Chromium、编译两个服务端程序、准备本机配置，并下载 Whisper 模型。它会将 BoringSSL 编入 llama.cpp，使服务端能通过 HTTPS 下载模型。使用 Vulkan 加速时先安装 Vulkan SDK，再运行 `.\setup.ps1 -UseVulkan`。只准备 Python/Node 依赖而不编译或下载模型，可运行 `.\setup.ps1 -SkipNativeBuild -SkipModelDownload`；之后需编辑 `local_services/*/config/config.json` 指定已有服务程序与模型路径。
+安装脚本会创建 Python 环境、安装 cat-catch 与 Chromium、默认以 Vulkan 编译两个服务端程序、准备本机配置，并下载 Whisper 模型。它会将 BoringSSL 编入 llama.cpp，使服务端能通过 HTTPS 下载模型。运行前需安装 AMD Vulkan 驱动和 LunarG Vulkan SDK；llama.cpp 默认使用 `Vulkan0` 和 GPU layers。运行 `.\setup.ps1 -CpuOnly` 可使用 CPU 构建。只准备 Python/Node 依赖而不编译或下载模型，可运行 `.\setup.ps1 -SkipNativeBuild -SkipModelDownload`；之后需编辑 `local_services/*/config/config.json` 指定已有服务程序与模型路径。
 
 Whisper 模型约 574 MB。默认 llama `quality` 配置会在首次运行时从 Hugging Face 下载较大的模型；硬件资源有限时可用 `--llama-profile smoke`。本机配置文件已加入 Git 忽略规则。重新编译时安装脚本会更新服务端程序路径和设备设置，并保留模型配置。只支持 cat-catch 可访问的媒体，不支持 DRM 解密。
 

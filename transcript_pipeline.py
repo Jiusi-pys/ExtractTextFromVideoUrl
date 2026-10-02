@@ -110,6 +110,25 @@ def _source_suffix(resource: dict) -> str:
     return suffix if suffix in OUTPUT_EXTENSIONS else ".mkv"
 
 
+def _correct_chunk(runner, args: list[str], env: dict[str, str], chunk: str, depth: int = 0) -> dict:
+    try:
+        return _json_result(runner, args, env)
+    except PipelineError as exc:
+        if depth >= 3 or len(chunk) < 200 or "JSONDecodeError" not in str(exc):
+            raise
+        # A model response can hit its token limit before closing the edit JSON.
+        parts = split_text(chunk, max_chars=(len(chunk) + 1) // 2)
+        results = []
+        for part in parts:
+            retry_args = list(args)
+            retry_args[retry_args.index("correct") + 1] = part
+            results.append(_correct_chunk(runner, retry_args, env, part, depth + 1))
+        if any(not isinstance(result.get("corrected"), str) for result in results):
+            raise PipelineError("Correction retry returned no text")
+        return {"corrected": "".join(result["corrected"] for result in results),
+                "applied_edits": [edit for result in results for edit in result.get("applied_edits", [])]}
+
+
 def _safe_url(url: str) -> str:
     parsed = urlparse(url)
     return urlunparse(parsed._replace(netloc=parsed.netloc.rsplit("@", 1)[-1], query="", fragment=""))
@@ -176,8 +195,7 @@ def run_pipeline(
             sniff += ["--cookies", str(cookies)]
         if storage_state:
             sniff += ["--storage-state", str(storage_state)]
-        if cookies or storage_state:
-            sniff.append("--include-headers")
+        sniff.append("--include-headers")
         for click in clicks or []:
             sniff += ["--click", click]
         try:
@@ -215,7 +233,13 @@ def run_pipeline(
             download.append(candidate["url"])
         else:
             capture_path = run_dir / "capture.tmp.json"
-            capture_path.write_text(json.dumps({"schemaVersion": 1, "resources": [candidate]}, ensure_ascii=False), encoding="utf-8")
+            download_resource = dict(candidate)
+            excluded = {"host", "content-length", "range", "connection", "accept-encoding"}
+            download_resource["headers"] = {
+                name: value for name, value in candidate.get("headers", {}).items()
+                if not name.startswith(":") and name.lower() not in excluded
+            }
+            capture_path.write_text(json.dumps({"schemaVersion": 1, "resources": [download_resource]}, ensure_ascii=False), encoding="utf-8")
             download += ["--from", str(capture_path), "--id", str(candidate["id"])]
         download += ["-o", str(source), "--ffmpeg", ffmpeg_executable]
         if duration is not None:
@@ -252,10 +276,17 @@ def run_pipeline(
         if not source_file.is_file():
             raise PipelineError(f"Whisper did not produce raw {ext.upper()}: {source_file}")
         shutil.copy2(source_file, run_dir / f"raw.{ext}")
+    correct_saved_transcript(run_dir, llama_dir, llama_profile, runner, py)
+    return {"run_dir": run_dir, "selected_resource": _record_resource(selected)}
+
+
+def correct_saved_transcript(run_dir: Path, llama_dir: Path, llama_profile: str = "quality",
+                             runner=subprocess.run, py: str | None = None) -> None:
+    llama_cli = llama_dir / "cli.py"
     raw = (run_dir / "raw.txt").read_text(encoding="utf-8")
     corrections = []
     corrected_chunks = []
-    llama_python = _service_python(llama_dir, py)
+    llama_python = _service_python(llama_dir, py or sys.executable)
     chunks = split_text(raw)
     for index, chunk in enumerate(chunks):
         context = "".join(chunks[max(0, index - 1):index])[-300:]
@@ -263,7 +294,7 @@ def run_pipeline(
         if context:
             args += ["--context", context]
         try:
-            result = _json_result(runner, args, {"PIPELINE_LLAMA_CONFIG": str(llama_dir / "config" / "config.json")})
+            result = _correct_chunk(runner, args, {"PIPELINE_LLAMA_CONFIG": str(llama_dir / "config" / "config.json")}, chunk)
         except PipelineError as exc:
             (run_dir / "corrections.partial.json").write_text(json.dumps(corrections, ensure_ascii=False, indent=2), encoding="utf-8")
             raise PipelineError(f"Correction chunk {index + 1} failed: {exc}") from exc
@@ -274,7 +305,7 @@ def run_pipeline(
         corrections.append({"chunk": index + 1, "original": chunk, "corrected": corrected, "applied_edits": result.get("applied_edits", [])})
     (run_dir / "corrected.txt").write_text("".join(corrected_chunks), encoding="utf-8")
     (run_dir / "corrections.json").write_text(json.dumps(corrections, ensure_ascii=False, indent=2), encoding="utf-8")
-    return {"run_dir": run_dir, "selected_resource": _record_resource(selected)}
+    (run_dir / "corrections.partial.json").unlink(missing_ok=True)
 
 
 def main(argv: list[str] | None = None) -> int:
